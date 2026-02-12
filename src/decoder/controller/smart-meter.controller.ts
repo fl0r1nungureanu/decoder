@@ -65,7 +65,7 @@ export class SmartMeterController {
     return this.smartMeterService.decode(item);
   }
 
-  @Post()
+  @Post('alarm')
   @ApiOperation({
     summary: 'Assign alarms to a visit',
     description:

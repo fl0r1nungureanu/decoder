@@ -13,7 +13,7 @@ import { SmartMeterModule } from './decoder/smart-meter.module';
       database: 'GETWEB',
 
       entities: [__dirname + '/**/*.entity{.ts,.js}'],
-      synchronize: true, // DEV
+      synchronize: false, // DEV
       logging: true,
 
       options: {
