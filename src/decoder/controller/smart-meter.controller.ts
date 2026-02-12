@@ -4,6 +4,7 @@ import {
   UsePipes,
   ValidationPipe,
   Post,
+  Logger,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBody, ApiOkResponse } from '@nestjs/swagger';
 
@@ -15,6 +16,7 @@ import type { DecodedSmartMeterInfo } from '../decoder/decoded-smart-meter-info.
 @ApiTags('Smart Meter')
 @Controller('api')
 export class SmartMeterController {
+  private readonly logger = new Logger(SmartMeterController.name);
   constructor(private readonly smartMeterService: SmartMeterService) {}
 
   @Post('/decode')
@@ -44,6 +46,10 @@ export class SmartMeterController {
     type: DecodedSmartMeterInfoMaddalenaDto,
   })
   decodeSmartMeter(@Body() item: DecodeSmartMeterDto): DecodedSmartMeterInfo {
+    this.logger.log(
+      'Data: ',
+      JSON.stringify(this.smartMeterService.decode(item)),
+    );
     return this.smartMeterService.decode(item);
   }
 }
