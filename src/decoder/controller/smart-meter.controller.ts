@@ -3,23 +3,35 @@ import {
   Body,
   UsePipes,
   ValidationPipe,
-  Post,
   Logger,
+  Get,
+  Post,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBody, ApiOkResponse } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBody,
+  ApiOkResponse,
+  ApiResponse,
+} from '@nestjs/swagger';
 
 import { SmartMeterService } from '../service/smart-meter.service';
 import { DecodeSmartMeterDto } from '../dto/decode-smart-meter.dto';
 import { DecodedSmartMeterInfoMaddalenaDto } from '../dto/decoded-smart-meter-info.dto';
 import type { DecodedSmartMeterInfo } from '../decoder/decoded-smart-meter-info.interface';
+import { VisitAlarmsService } from '../service/alarm-visits.service';
+import { CreateVisitAlarmsDto } from '../dto/create-visit-alarms.dto';
 
 @ApiTags('Smart Meter')
 @Controller('api')
 export class SmartMeterController {
   private readonly logger = new Logger(SmartMeterController.name);
-  constructor(private readonly smartMeterService: SmartMeterService) {}
+  constructor(
+    private readonly smartMeterService: SmartMeterService,
+    private readonly visitAlarmsService: VisitAlarmsService,
+  ) {}
 
-  @Post('/decode')
+  @Get('/decode')
   @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
   @ApiOperation({
     summary: 'Decodifica un payload smart meter',
@@ -51,5 +63,27 @@ export class SmartMeterController {
       JSON.stringify(this.smartMeterService.decode(item)),
     );
     return this.smartMeterService.decode(item);
+  }
+
+  @Post()
+  @ApiOperation({
+    summary: 'Assign alarms to a visit',
+    description:
+      'Associates alarms to a visit (recoutSapId) using a binary alarm string based on alarm position.',
+  })
+  @ApiBody({
+    type: CreateVisitAlarmsDto,
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Alarms successfully assigned to the visit',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid brand or alarm string',
+  })
+  @UsePipes(new ValidationPipe({ whitelist: true }))
+  async assignAlarms(@Body() dto: CreateVisitAlarmsDto) {
+    return this.visitAlarmsService.assignAlarms(dto);
   }
 }
