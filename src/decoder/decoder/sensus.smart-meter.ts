@@ -9,7 +9,7 @@ interface WMBusHeader {
   ciField: number;
   accessNumber: number;
   status: number;
-  encryptedStart: number;
+  encryptedOffset: number;
 }
 
 export class DecodableSmartMeterSensus implements DecodableSmartMeter {
@@ -17,34 +17,43 @@ export class DecodableSmartMeterSensus implements DecodableSmartMeter {
 
   decodePayload(key: string, payload: string): DecodedSmartMeterInfo {
     const telegram = Buffer.from(payload, 'hex');
-    const keyBuffer = Buffer.from(key, 'hex');
+    const aesKey = Buffer.from(key, 'hex');
 
     const header = this.parseHeader(telegram);
 
-    const encrypted = telegram.subarray(header.encryptedStart);
+    const encrypted = telegram.subarray(
+      header.encryptedOffset,
+      header.encryptedOffset + 16,
+    );
+
+    console.log('RAW TELEGRAM:', telegram.toString('hex'));
+    console.log('ENCRYPTED:', encrypted.toString('hex'));
 
     const iv = this.buildIv(header);
 
-    const decrypted = this.cryptoService.decryptAesCbc(
-      encrypted,
-      keyBuffer,
-      iv,
-    );
+    console.log('IV:', iv.toString('hex'));
 
-    return this.parsePayload(decrypted, header);
+    const decrypted = this.cryptoService.decryptAesCbc(encrypted, aesKey, iv);
+
+    console.log('DECRYPTED:', decrypted.toString('hex'));
+
+    return this.parseDecryptedPayload(decrypted, header);
   }
 
   private parseHeader(buffer: Buffer): WMBusHeader {
     const manufacturer = buffer.subarray(7, 9);
-    const address = buffer.subarray(9, 15);
 
-    const meterId = address.subarray(0, 4).reverse().toString('hex');
+    const serial = buffer.subarray(9, 13);
+    const version = buffer.subarray(13, 14);
+    const deviceType = buffer.subarray(14, 15);
 
-    const ciField = buffer[17];
-    const accessNumber = buffer[18];
-    const status = buffer[19];
+    const address = Buffer.concat([serial, version, deviceType]);
 
-    const encryptedStart = 20;
+    const meterId = Buffer.from(serial).reverse().toString('hex');
+
+    const ciField = buffer[15];
+    const accessNumber = buffer[16];
+    const status = buffer[17];
 
     return {
       manufacturer,
@@ -53,7 +62,7 @@ export class DecodableSmartMeterSensus implements DecodableSmartMeter {
       ciField,
       accessNumber,
       status,
-      encryptedStart,
+      encryptedOffset: 20,
     };
   }
 
@@ -68,35 +77,59 @@ export class DecodableSmartMeterSensus implements DecodableSmartMeter {
     ]);
   }
 
-  private parsePayload(
+  private parseDecryptedPayload(
     buffer: Buffer,
     header: WMBusHeader,
   ): DecodedSmartMeterInfo {
     let offset = 0;
 
     let volume = 0;
+    let flow = 0;
     let timestamp: Date | null = null;
-    let alarms = '';
+    let alarms = '0000000000000000';
 
     while (offset < buffer.length) {
+      // skip filler bytes
+      if (buffer[offset] === 0x2f) {
+        offset++;
+        continue;
+      }
+
       const dif = buffer[offset++];
       const vif = buffer[offset++];
 
-      const length = this.difLength(dif);
+      let vife: number | null = null;
+
+      if (vif === 0xfd || vif === 0xfb) {
+        vife = buffer[offset++];
+      }
+
+      const length = this.difDataLength(dif);
 
       const data = buffer.subarray(offset, offset + length);
+
       offset += length;
 
+      // meter reading
       if ((vif & 0x7f) === 0x13) {
         volume = data.readUIntLE(0, length);
       }
 
-      if ((vif & 0x7f) === 0x6d) {
-        timestamp = this.decodeDate(data);
+      // flow rate
+      if ((vif & 0x7f) === 0x3b) {
+        flow = data.readUInt16LE(0);
       }
 
-      if ((vif & 0x7f) === 0xfd) {
-        alarms = [...data].map((b) => b.toString(2).padStart(8, '0')).join('');
+      // timestamp OMS
+      if ((vif & 0x7f) === 0x6d) {
+        timestamp = this.decodeOmsTimestamp(data);
+      }
+
+      // alarms
+      if (vif === 0xfd && vife === 0x17) {
+        const alarmValue = data.readUInt16LE(0);
+
+        alarms = alarmValue.toString(2).padStart(16, '0');
       }
     }
 
@@ -104,12 +137,13 @@ export class DecodableSmartMeterSensus implements DecodableSmartMeter {
       meterId: header.meterId,
       brand: 'Sensus',
       volumeValue: volume,
-      dateValue: timestamp ?? new Date(),
+      flowValue: flow,
+      dateValue: timestamp,
       alarmFlags: alarms,
     } as unknown as DecodedSmartMeterInfo;
   }
 
-  private difLength(dif: number): number {
+  private difDataLength(dif: number): number {
     const map: Record<number, number> = {
       0x00: 0,
       0x01: 1,
@@ -124,19 +158,19 @@ export class DecodableSmartMeterSensus implements DecodableSmartMeter {
     return map[dif & 0x0f] ?? 0;
   }
 
-  private decodeDate(buffer: Buffer): Date {
-    const val = buffer.readUInt32LE(0);
+  private decodeOmsTimestamp(buffer: Buffer): Date {
+    const value = buffer.readUInt32LE(0);
 
-    const minute = val & 0x3f;
-    const hour = (val >> 8) & 0x1f;
-    const day = (val >> 16) & 0x1f;
-    const month = (val >> 24) & 0x0f;
+    const minute = value & 0x3f;
+    const hour = (value >> 8) & 0x1f;
+    const day = (value >> 16) & 0x1f;
+    const month = (value >> 24) & 0x0f;
 
-    const year = ((val >> 21) & 0x07) | (((val >> 28) & 0x07) << 3);
+    const year = ((value >> 21) & 0x07) | (((value >> 28) & 0x07) << 3);
 
-    const hundred = (val >> 13) & 0x03;
+    const century = (value >> 13) & 0x03;
 
-    const fullYear = 2000 + hundred * 100 + year;
+    const fullYear = 2000 + century * 100 + year;
 
     return new Date(fullYear, month - 1, day, hour, minute);
   }
