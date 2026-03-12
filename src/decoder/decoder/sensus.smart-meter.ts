@@ -26,16 +26,9 @@ export class DecodableSmartMeterSensus implements DecodableSmartMeter {
       header.encryptedOffset + 16,
     );
 
-    console.log('RAW TELEGRAM:', telegram.toString('hex'));
-    console.log('ENCRYPTED:', encrypted.toString('hex'));
-
     const iv = this.buildIv(header);
 
-    console.log('IV:', iv.toString('hex'));
-
     const decrypted = this.cryptoService.decryptAesCbc(encrypted, aesKey, iv);
-
-    console.log('DECRYPTED:', decrypted.toString('hex'));
 
     return this.parseDecryptedPayload(decrypted, header);
   }
@@ -89,7 +82,6 @@ export class DecodableSmartMeterSensus implements DecodableSmartMeter {
     let alarms = '0000000000000000';
 
     while (offset < buffer.length) {
-      // skip filler bytes
       if (buffer[offset] === 0x2f) {
         offset++;
         continue;
@@ -105,27 +97,22 @@ export class DecodableSmartMeterSensus implements DecodableSmartMeter {
       }
 
       const length = this.difDataLength(dif);
-
       const data = buffer.subarray(offset, offset + length);
 
       offset += length;
 
-      // meter reading
       if ((vif & 0x7f) === 0x13) {
         volume = data.readUIntLE(0, length);
       }
 
-      // flow rate
       if ((vif & 0x7f) === 0x3b) {
         flow = data.readUInt16LE(0);
       }
 
-      // timestamp OMS
       if ((vif & 0x7f) === 0x6d) {
         timestamp = this.decodeOmsTimestamp(data);
       }
 
-      // alarms
       if (vif === 0xfd && vife === 0x17) {
         const alarmValue = data.readUInt16LE(0);
 
