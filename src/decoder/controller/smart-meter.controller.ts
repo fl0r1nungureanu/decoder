@@ -4,7 +4,6 @@ import {
   UsePipes,
   ValidationPipe,
   Logger,
-  Get,
   Post,
 } from '@nestjs/common';
 import {
@@ -31,7 +30,7 @@ export class SmartMeterController {
     private readonly visitAlarmsService: VisitAlarmsService,
   ) {}
 
-  @Get('/decode')
+  @Post('/decode')
   @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
   @ApiOperation({
     summary: 'Decodifica un payload smart meter',
